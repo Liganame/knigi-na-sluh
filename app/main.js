@@ -346,7 +346,10 @@ function bindUi() {
   });
   P.bindSettings(app, actions);
   initInstall($('#install-row'), $('#btn-install'));
-  engine.audio.addEventListener('play', () => preview.pause());
+  engine.audio.addEventListener('play', () => {
+    preview.pause();
+    if (!$('#coach').hidden) P.coach(Infinity);   // начали слушать — подсказки первого запуска больше не мешают
+  });
   engine.audio.addEventListener('timeupdate', () => engine.tick());
   document.addEventListener('visibilitychange', flushListened);
   window.addEventListener('pagehide', flushListened);
