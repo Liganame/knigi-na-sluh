@@ -1,0 +1,16 @@
+{
+  "name": "Книги на слух",
+  "short_name": "На слух",
+  "description": "Русский текст на экране, английский диктор: практика английского на слух.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EEF0EB",
+  "theme_color": "#2B5870",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

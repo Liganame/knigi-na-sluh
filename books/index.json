@@ -1,0 +1,19 @@
+{
+ "books": [
+  {
+   "slug": "kavkazskiy-plennik",
+   "title": "Кавказский пленник",
+   "author": "Л. Н. Толстой",
+   "year": 1872,
+   "level": "A2–B1",
+   "chapters": 6,
+   "phrases": 913,
+   "voices": [
+    "Heart",
+    "Michael",
+    "Emma",
+    "George"
+   ]
+  }
+ ]
+}
