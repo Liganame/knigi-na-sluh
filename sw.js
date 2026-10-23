@@ -1,10 +1,14 @@
 // Фоновая служба сайта: оболочка приложения и тексты — из кэша с обновлением в фоне;
 // звук — только из явно скачанного кэша (кнопка «↓» у голоса), с поддержкой перемотки (Range).
-const VERSION = 'v2';   // меняется при каждой выкладке кода — иначе открывшие сайт получат старую оболочку
+const VERSION = 'v4';   // меняется при каждой выкладке кода — иначе открывшие сайт получат старую оболочку
 const SHELL = `knl-shell-${VERSION}`;
 const AUDIO = 'knl-audio-v1';
+const TRAINER = 'knl-trainer-v1';   // звук тренажёра: кладётся в кэш при первом запросе (в адресе ?v=отпечаток)
 const SHELL_FILES = [
-  './', 'index.html', 'reader.html', 'manifest.webmanifest',
+  './', 'index.html', 'books.html', 'reader.html', 'manifest.webmanifest',
+  'trainer/trainer.css', 'trainer/main.js', 'trainer/ui.js', 'trainer/audio.js', 'trainer/speech.js', 'trainer/progress.js',
+  'trainer/data.js', 'trainer/session.js', 'trainer/today.js', 'trainer/words.js', 'trainer/phrases.js', 'trainer/laws.js',
+  'trainer/memory.js', 'vendor/ts-fsrs.js',
   'app/style.css', 'app/main.js', 'app/engine.js', 'app/fx.js', 'app/text.js', 'app/view.js',
   'app/panels.js', 'app/store.js', 'app/offline.js', 'app/shelf.js',
   'vendor/SignalsmithStretch.js', 'fonts/fonts.css', 'books/index.json', 'books/function_words.json',
@@ -64,9 +68,24 @@ async function staleWhileRevalidate(event) {
   return net;
 }
 
+async function trainerResponse(request) {
+  const cache = await caches.open(TRAINER);
+  const hit = await cache.match(request.url);
+  if (hit) return hit;
+  const r = await fetch(request);
+  // старые версии (другой ?v=) не чистим: запоздавший запрос старой вкладки удалил бы новую;
+  // переозвучка редкая, лишние сотни килобайт не страшны
+  if (r.ok && r.status === 200) cache.put(request.url, r.clone()).catch(() => {});
+  return r;
+}
+
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  if (req.url.includes('/trainer/audio/') && !req.headers.get('range')) {
+    event.respondWith(trainerResponse(req));
+    return;
+  }
   if (req.url.endsWith('.mp3')) {
     event.respondWith(audioResponse(req));
     return;

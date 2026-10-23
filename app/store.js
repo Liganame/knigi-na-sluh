@@ -55,7 +55,7 @@ export const heard = {
 
 /** Минуты прослушивания по дням (для счётчика «сегодня»). */
 export const listened = {
-  today: () => new Date().toISOString().slice(0, 10),
+  today: () => new Date().toLocaleDateString('sv-SE'),   // местная дата ГГГГ-ММ-ДД — так же считает тренажёр
   seconds() {
     return store.get('listen', {})[listened.today()] || 0;
   },
