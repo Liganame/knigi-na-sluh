@@ -2,10 +2,12 @@
 // потом история-цепочка. Ответы ставят карточки в расписание повторений FSRS.
 import { show, tab } from './main.js';
 import { el, esc, shuffle, choice, tiles, mic, toast, playBtn } from './ui.js';
+import { ic } from './icons.js';
 import * as audio from './audio.js';
 import { audioUrl, packs, LEVELS } from './data.js';
-import { settings, review, Rating, isNew, done, dayLog, addToDay, myAssoc, myStory, cardOf } from './progress.js';
+import { settings, review, Rating, isNew, done, dayLog, addToDay, myAssoc, myStory, cardOf, dueKeys } from './progress.js';
 import { run, summary } from './session.js';
+import * as game from './game.js';
 
 const say = w => audio.play(audioUrl(w.audio), w.a);
 const sayEx = w => audio.play(audioUrl(w.audio), w.x);
@@ -18,35 +20,55 @@ export async function words() {
     const fin = done.packs();
     const learned = all.filter(p => fin.has(p.id)).length;
     const left = Math.max(0, S.newWords - dayLog().newWords);
-    m.append(el('<div class="muted">Пачка из 10 слов: знакомство с ассоциацией → перевод → обратно → на слух → из букв → набор → вслух. Потом история-цепочка и повторения по расписанию.</div>'));
-    const chips = el('<div class="chips"></div>');
-    [...LEVELS, 'B1', 'B2'].forEach(lv => {
-      const soon = !LEVELS.includes(lv);
-      const c = el(`<button class="chip" aria-pressed="${lv === S.level}" ${soon ? 'disabled' : ''}>${lv}${soon ? ' · скоро' : ''}</button>`);
-      c.onclick = () => { settings.set({ ...S, level: lv }); words(); };
-      chips.append(c);
+    const lv = el(`<div class="card lvl"><div class="row"><h2>Уровень ${S.level}</h2><b style="color:var(--blue)">${learned} / ${all.length} пачек</b></div>
+      <div class="lb"><i style="width:${Math.max(2, learned / all.length * 100).toFixed(1)}%"></i></div><div class="lvls"></div></div>`);
+    [...LEVELS, 'B1', 'B2'].forEach(x => {
+      const soon = !LEVELS.includes(x);
+      const c = el(`<button aria-pressed="${x === S.level}" ${soon ? 'disabled' : ''}>${x}${soon ? ' скоро' : ''}</button>`);
+      c.onclick = () => { settings.set({ ...S, level: x }); words(); };
+      lv.querySelector('.lvls').append(c);
     });
-    m.append(chips);
-    m.append(el(`<div class="card"><div class="row"><b>Уровень ${S.level}</b><span class="pill">${learned} из ${all.length} пачек</span></div>
-      <div class="meter"><i style="width:${(learned / all.length * 100).toFixed(1)}%"></i></div>
-      <div class="muted">Сегодня ещё ${left} новых слов по плану (${S.newWords} в день — меняется в настройках на экране «Сегодня»).</div></div>`));
+    m.append(lv);
     const next = all.find(p => !fin.has(p.id));
     if (next) {
-      const b = el(`<button class="btn">Учить пачку: ${esc(next.words.slice(0, 4).map(w => w.w).join(', '))}…</button>`);
-      b.onclick = () => learnPack(next);
-      m.append(b);
+      const rest = next.words.slice(1, 4).map(w => w.w).join(' · ');
+      const deck = el(`<button class="deck" style="border:0;background:none;padding:0;width:100%;cursor:pointer" aria-label="Учить пачку">
+        <span class="d1"></span><span class="d2"></span><span class="d3"><small>ПАЧКА ${all.indexOf(next) + 1} · ${next.words.length} СЛОВ</small><b>${esc(next.words[0].w)}</b><span class="muted">${esc(rest)} · +${next.words.length - 4}</span></span></button>`);
+      const go = el(`<button class="btn">Учить пачку · +${game.PTS.pack}${ic('zap')}</button>`);
+      deck.onclick = go.onclick = () => learnPack(next);
+      m.append(deck, go);
     } else m.append(el('<div class="fb ok">Все пачки уровня пройдены! Выберите следующий уровень.</div>'));
-    const done10 = all.filter(p => fin.has(p.id)).slice(-12).reverse();
-    if (done10.length) {
-      const list = el('<div class="card"><h2>Пройденные пачки</h2><div class="list"></div></div>');
-      done10.forEach(p => {
-        const r = el(`<button class="row" style="border:0;background:none;width:100%;text-align:left;cursor:pointer"><span>${esc(p.words.map(w => w.w).join(', '))}</span><span class="pill">история</span></button>`);
-        r.onclick = () => storyScreen(p, () => words());
-        list.querySelector('.list').append(r);
-      });
-      m.append(list);
-    }
+    const due = dueKeys().filter(k => k.startsWith('w:')).length;
+    const row = el(`<div class="grid2"><button class="card tap" style="grid-template-columns:auto 1fr;align-items:center;gap:8px;padding:10px">${ic('repeat')}<span><b>${due}</b> <span class="muted">к повтору</span></span></button>
+      <button class="card tap" style="grid-template-columns:auto 1fr;align-items:center;gap:8px;padding:10px">${ic('cards')}<span><b>${learned}</b> <span class="muted">пройдено</span></span></button></div>`);
+    const [rep, past] = row.querySelectorAll('button');
+    rep.onclick = () => (due ? reviewWords() : toast(left ? `Повторять пока нечего — сегодня ещё ${left} новых слов` : 'Повторять пока нечего'));
+    past.onclick = () => packsScreen(all.filter(p => fin.has(p.id)));
+    m.append(row);
   });
+}
+
+/** Пройденные пачки уровня: истории-цепочки. */
+function packsScreen(list) {
+  show('Пройденные пачки', m => {
+    if (!list.length) {
+      m.append(el('<div class="muted">Пока ни одной — выучите первую пачку, и здесь появится её история-цепочка.</div>'));
+      return;
+    }
+    const card = el('<div class="card"><div class="list"></div></div>');
+    list.slice().reverse().forEach(p => {
+      const r = el(`<button class="row" style="border:0;background:none;width:100%;text-align:left;cursor:pointer;font:inherit"><span>${esc(p.words.map(w => w.w).join(', '))}</span><span class="pill">история</span></button>`);
+      r.onclick = () => storyScreen(p, () => words());
+      card.querySelector('.list').append(r);
+    });
+    m.append(card);
+  }, true);
+}
+
+/** Повторение только слов (из раздела «Слова»). */
+async function reviewWords() {
+  const { reviewSession } = await import('./today.js');
+  reviewSession(dueKeys().filter(k => k.startsWith('w:')).slice(0, 40));
 }
 
 /** Карточка знакомства со словом. */
@@ -104,6 +126,7 @@ export function wordTask(m, kind, w, pool, answer) {
     const t0 = performance.now();
     b.onclick = () => {
       const ok = inp.value.trim().toLowerCase().replace(/’/g, "'") === w.w.toLowerCase();
+      game.answer(ok, ok ? null : inp);
       fb.className = `fb ${ok ? 'ok' : 'bad'}`;
       fb.textContent = ok ? 'Верно!' : `Правильно: ${w.w}`;
       b.disabled = true;
@@ -152,8 +175,10 @@ export function learnPack(p) {
       const e = errors.get(w.id);
       review(key, e === 0 ? Rating.Good : e === 1 ? Rating.Hard : Rating.Again);
     });
+    const first = !done.packs().has(p.id);
     done.addPack(p.id);
     addToDay({ newWords: fresh });
+    if (first) game.bonus(game.PTS.pack, 'Пачка выучена!');
     storyScreen(p, () => words(), true);
   });
 }
@@ -169,7 +194,16 @@ export function storyScreen(p, onNext, afterLearning = false) {
     m.append(ed);
     m.append(el('<div class="step">Проверка: расставьте слова в порядке истории</div>'));
     const order = p.words.map(w => w.w);
-    tiles(m, order, ' | ', order.join(' | '), ok => toast(ok ? 'Цепочка держится!' : 'Перечитайте историю и попробуйте ещё раз'));
+    const box = el('<div style="display:grid;gap:8px"></div>');
+    const chain = () => {
+      box.replaceChildren();
+      tiles(box, order, ' | ', order.join(' | '), ok => {
+        toast(ok ? 'Цепочка держится!' : 'Перечитайте историю — и соберите ещё раз');
+        if (!ok && box.isConnected) chain();   // плитки после сборки замирают — даём новую попытку
+      });
+    };
+    chain();
+    m.append(box);
     const b = el('<button class="btn ghost">Дальше</button>');
     b.onclick = onNext;
     m.append(b);

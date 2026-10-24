@@ -1,8 +1,9 @@
 // Общие детали экранов: элементы, тосты, выбор ответа, сборка из плиток, микрофон, «бегунок» упражнений.
 import * as speech from './speech.js';
+import * as game from './game.js';
 
 export const $ = (s, r = document) => r.querySelector(s);
-export const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export function el(html) {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
@@ -42,6 +43,7 @@ export function choice(box, right, wrong, onAnswer, after) {
       list.dataset.done = '1';
       const ok = o === right;
       b.classList.add(ok ? 'right' : 'wrong');
+      game.answer(ok, ok ? null : b);
       if (!ok) [...list.children].find(x => x.textContent === right)?.classList.add('right');
       if (after) after(ok);
       const sec = (performance.now() - t0) / 1000;
@@ -72,6 +74,7 @@ export function tiles(box, parts, joiner, target, onAnswer, { letters = false, o
     [...ans.children].forEach(x => { x.disabled = true; });
     const got = [...ans.children].map(x => x.textContent).join(joiner);
     const ok = got.toLowerCase() === target.toLowerCase();
+    game.answer(ok, ok ? null : ans);
     fb.className = `fb ${ok ? 'ok' : 'bad'}`;
     fb.textContent = ok ? 'Верно!' : `Правильно: ${target}`;
     if (onCheck) onCheck(ok);
@@ -102,6 +105,7 @@ export function mic(box, target, hint, onDone, enabled = true) {
     if (finished) return;
     finished = true;
     btn.disabled = true;
+    game.answer(ok, ok ? null : card);
     onDone(ok, sec);
   };
   const no = self.querySelector('[data-ok="0"]');
@@ -120,6 +124,7 @@ export function mic(box, target, hint, onDone, enabled = true) {
     selfGrade('Скажите вслух, потом отметьте честно:');
   }
   btn.onclick = async () => {
+    if (btn.classList.contains('live')) return;   // уже слушаем — второй тап не запускает вторую попытку
     const pressed = (performance.now() - born) / 1000;
     btn.classList.add('live');
     heard.textContent = 'Слушаю…';
@@ -147,6 +152,7 @@ export function mic(box, target, hint, onDone, enabled = true) {
       selfGrade(e.code === 'denied' ? 'Нет доступа к микрофону — скажите вслух и отметьте сами.'
         : e.code === 'unavailable' ? 'Распознавание недоступно — скажите вслух и отметьте сами.'
           : e.code === 'network' ? 'Распознаванию нужен интернет (или офлайн-пакет английского в настройках голосового ввода Google) — скажите вслух и отметьте сами.'
+            : e.code === 'silent' ? 'Микрофон не отвечает (так бывает на iPhone) — скажите вслух и отметьте сами.'
             : 'Не расслышал. Нажмите микрофон ещё раз или отметьте сами.');
       btn.classList.remove('live');
     }

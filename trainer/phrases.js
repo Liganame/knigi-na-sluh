@@ -4,27 +4,47 @@ import { show, back } from './main.js';
 import { el, esc, shuffle, choice, tiles, mic, toast, playBtn } from './ui.js';
 import * as audio from './audio.js';
 import { audioUrl, phrasesData } from './data.js';
-import { settings, review, Rating, isNew, isAuto, cardOf, dayLog, addToDay } from './progress.js';
+import { settings, review, Rating, isNew, isAuto, cardOf, dayLog, addToDay, stats } from './progress.js';
+import { ic } from './icons.js';
+import * as game from './game.js';
 import { run, summary, reshow } from './session.js';
 
 const say = p => audio.play(audioUrl(p.audio), p.a);
 const FAST = 3;
 const LAG = 0.8;   // распознавание отдаёт первые слова чуть позже начала речи
 
+// короткое имя и значок ситуации для плитки; цвета плиток идут по кругу
+const SIT = {
+  hotel: ['Гостиница', 'bed'], shop: ['Магазин', 'bag'], cafe: ['Кафе', 'cup'], airport: ['Вокзал', 'plane'], taxi: ['Такси', 'car'],
+  city: ['Город', 'pin'], pharmacy: ['Аптека', 'cross'], bank: ['Банк', 'bank'], meeting: ['Знакомство', 'users'], smalltalk: ['Small talk', 'talk'],
+  phone: ['Телефон', 'phone'], help: ['Помощь', 'buoy'], work: ['Работа', 'brief'], online: ['Онлайн', 'cart'], emergency: ['Экстренно', 'alert'],
+};
+const TINTS = ['c-violet', 'c-orange', 'c-teal', 'c-pink', 'c-blue'];
+
+/** Звёзды ситуации: 1 — выучена треть фраз, 2 — все 20, 3 — две трети «на автомате». */
+function starsOf(s) {
+  const learned = s.phrases.filter(p => !isNew(`p:${p.id}`)).length;
+  const auto = s.phrases.filter(p => isAuto(`p:${p.id}`)).length;
+  const n = s.phrases.length;
+  return (learned >= n / 3 ? 1 : 0) + (learned >= n ? 1 : 0) + (auto >= (n * 2) / 3 ? 1 : 0);
+}
+
 export async function phrases() {
-  show('Фразы на автомате', async m => {
+  show('Фразы', async m => {
     const d = await phrasesData();
-    m.append(el('<div class="muted">Готовые фразы, которые должны вылетать без раздумья. Полоска — сколько фраз уже «на автомате».</div>'));
-    const grid = el('<div class="sit"></div>');
-    d.situations.forEach(s => {
-      const auto = s.phrases.filter(p => isAuto(`p:${p.id}`)).length;
-      const seen = s.phrases.filter(p => !isNew(`p:${p.id}`)).length;
-      const b = el(`<button><b>${esc(s.title)}</b><span class="muted">${seen ? `${auto} авто · ${seen}/${s.phrases.length}` : `${s.phrases.length} фраз`}</span><span class="meter"><i style="width:${(auto / s.phrases.length * 100).toFixed(0)}%"></i></span></button>`);
+    const all = d.situations.map(s => ({ s, st: starsOf(s) }));
+    const total = all.reduce((a, x) => a + x.st, 0);
+    m.append(el(`<div class="legend"><span class="c-orange">${ic('star')} ${total} из ${all.length * 3}</span><span class="c-pink">${d.situations.reduce((a, s) => a + s.phrases.filter(p => isAuto(`p:${p.id}`)).length, 0)} фраз на автомате</span></div>`));
+    const grid = el('<div class="ptiles stg"></div>');
+    all.forEach(({ s, st }, i) => {
+      const [name, icon] = SIT[s.id] || [s.title, 'chat'];
+      const b = el(`<button class="ptile ${TINTS[i % TINTS.length]}" style="--i:${i}" aria-label="${esc(s.title)}, звёзд ${st} из 3">
+        <span class="pi">${ic(icon)}</span>${esc(name)}<span class="stars">${[0, 1, 2].map(k => ic('star', k < st ? 'on' : '')).join('')}</span></button>`);
       b.onclick = () => situation(s, d);
       grid.append(b);
     });
     m.append(grid);
-    const fb = el('<button class="btn ghost">Рамки: Can I…? Could you…? I\'d like…</button>');
+    const fb = el(`<button class="btn cc c-pink">${ic('frame')}Рамки: Can I…? Could you…?</button>`);
     fb.onclick = () => framesScreen(d);
     m.append(fb);
   });
@@ -47,7 +67,7 @@ export function situation(s, d) {
     });
     if (fresh.length) {
       const n = Math.min(fresh.length, Math.max(5, left || 5));
-      const b = el(`<button class="btn">Учить новые: ${Math.min(n, 10)} фраз</button>`);
+      const b = el(`<button class="btn cc c-pink">Учить новые: ${Math.min(n, 10)} фраз</button>`);
       b.onclick = () => learnPhrases(s, fresh.slice(0, Math.min(n, 10)), d);
       m.append(b);
     }
@@ -115,6 +135,17 @@ export function phraseTask(m, kind, p, pool, answer) {
   }
 }
 
+/** Запись ответа по фразе; true — фраза впервые стала «на автомате». */
+function reviewAuto(key, rating, fast) {
+  const was = isAuto(key);
+  review(key, rating, fast);
+  return !was && isAuto(key);
+}
+/** Один общий бонус за все фразы, ставшие «на автомате» за тренировку. */
+function autoBonus(n) {
+  if (n) game.bonus(game.PTS.auto * n, n === 1 ? 'Фраза на автомате!' : `${n} фразы на автомате!`);
+}
+
 function rate(results, keyOf) {
   const by = new Map();
   for (const r of results) {
@@ -134,10 +165,12 @@ function learnPhrases(s, list, d) {
   for (const kind of ['listen', 'build', 'say']) shuffle(ps).forEach(p => tasks.push({ kind, p }));
   run(s.title, tasks, (m, t, answer) => phraseTask(m, t.kind, t.p, s.phrases, answer), results => {
     let fresh = 0;
+    let auto = 0;
     rate(results, t => t.p.id).forEach((v, id) => {
       if (isNew(`p:${id}`)) fresh++;
-      review(`p:${id}`, v.err === 0 ? (v.fast ? Rating.Good : Rating.Hard) : Rating.Again, v.fast && v.err === 0);
+      if (reviewAuto(`p:${id}`, v.err === 0 ? (v.fast ? Rating.Good : Rating.Hard) : Rating.Again, v.fast && v.err === 0)) auto++;
     });
+    autoBonus(auto);
     addToDay({ newPhrases: fresh });
     const frames = [...new Set(ps.map(p => p.frame).filter(Boolean))];
     summary(s.title, results, frames.length ? '<div class="muted">Дальше — рамки: та же конструкция с другими словами.</div>' : '', () => {
@@ -151,7 +184,9 @@ function learnPhrases(s, list, d) {
 function speedRound(s, list, d) {
   const ps = list.map(p => ({ ...p, audio: s.audio }));
   run('На скорость', ps.map(p => ({ kind: 'say', p })), (m, t, answer) => phraseTask(m, 'say', t.p, s.phrases, answer), results => {
-    rate(results, t => t.p.id).forEach((v, id) => review(`p:${id}`, v.err ? Rating.Again : v.fast ? Rating.Good : Rating.Hard, v.fast && !v.err));
+    let auto = 0;
+    rate(results, t => t.p.id).forEach((v, id) => { if (reviewAuto(`p:${id}`, v.err ? Rating.Again : v.fast ? Rating.Good : Rating.Hard, v.fast && !v.err)) auto++; });
+    autoBonus(auto);
     addToDay({ reviews: results.length });
     summary('На скорость', results, '', reshow);
   });
@@ -201,6 +236,9 @@ function dialog(s, dg, d) {
       ctl.replaceChildren();
       if (k >= dg.lines.length) {
         ctl.append(el(`<div class="fb ok">Сценка пройдена: верно ${right} из ${dg.lines.filter(x => x.who === 'you').length} реплик.</div>`));
+        stats.add('scenes');
+        game.bonus(game.PTS.scene, 'Сценка пройдена!');
+        game.checkBadges();
         const b = el('<button class="btn">К ситуации</button>');
         b.onclick = back;
         ctl.append(b);

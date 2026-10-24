@@ -1,6 +1,6 @@
 // Фоновая служба сайта: оболочка приложения и тексты — из кэша с обновлением в фоне;
 // звук — только из явно скачанного кэша (кнопка «↓» у голоса), с поддержкой перемотки (Range).
-const VERSION = 'v4';   // меняется при каждой выкладке кода — иначе открывшие сайт получат старую оболочку
+const VERSION = 'v5';   // меняется при каждой выкладке кода — иначе открывшие сайт получат старую оболочку
 const SHELL = `knl-shell-${VERSION}`;
 const AUDIO = 'knl-audio-v1';
 const TRAINER = 'knl-trainer-v1';   // звук тренажёра: кладётся в кэш при первом запросе (в адресе ?v=отпечаток)
@@ -8,11 +8,11 @@ const SHELL_FILES = [
   './', 'index.html', 'books.html', 'reader.html', 'manifest.webmanifest',
   'trainer/trainer.css', 'trainer/main.js', 'trainer/ui.js', 'trainer/audio.js', 'trainer/speech.js', 'trainer/progress.js',
   'trainer/data.js', 'trainer/session.js', 'trainer/today.js', 'trainer/words.js', 'trainer/phrases.js', 'trainer/laws.js',
-  'trainer/memory.js', 'vendor/ts-fsrs.js',
+  'trainer/memory.js', 'trainer/icons.js', 'trainer/game.js', 'trainer/sfx.js', 'vendor/ts-fsrs.js',
   'app/style.css', 'app/main.js', 'app/engine.js', 'app/fx.js', 'app/text.js', 'app/view.js',
   'app/panels.js', 'app/store.js', 'app/offline.js', 'app/shelf.js',
   'vendor/SignalsmithStretch.js', 'fonts/fonts.css', 'books/index.json', 'books/function_words.json',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', event => {

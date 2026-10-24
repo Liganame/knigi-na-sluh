@@ -26,7 +26,7 @@ function set(k, v) {
   }
 }
 
-export const DEFAULT_SETTINGS = Object.freeze({ minutes: 90, newWords: 30, newPhrases: 10, level: 'A1', speech: true, startLevel: 'A1' });
+export const DEFAULT_SETTINGS = Object.freeze({ minutes: 90, newWords: 30, newPhrases: 10, level: 'A1', speech: true, sounds: true, startLevel: 'A1' });
 const clamp = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, Math.round(+v))) : d);
 const oneOf = (v, list, d) => (list.includes(v) ? v : d);
 /** Настройки всегда проходят проверку: в них могло прийти что угодно из чужой выгрузки. */
@@ -38,6 +38,7 @@ function clean(s) {
     newPhrases: clamp(s.newPhrases, 5, 30, D.newPhrases),
     level: oneOf(s.level, ['A1', 'A2'], D.level),
     speech: s.speech !== false,
+    sounds: s.sounds !== false,
     startLevel: oneOf(s.startLevel, ['A1', 'A2', 'B1'], D.startLevel),
   };
 }
@@ -50,7 +51,10 @@ export const settings = {
 /** Карточки без расписания (повреждённые или чужие) отбрасываются — иначе упадут повторения. */
 function loadCards() {
   const all = get('cards', {});
-  return Object.fromEntries(Object.entries(all).filter(([, v]) => v && typeof v === 'object' && v.c && !Number.isNaN(new Date(v.c.due).getTime())));
+  const num = x => typeof x === 'number' && Number.isFinite(x);
+  return Object.fromEntries(Object.entries(all).filter(([, v]) => v && typeof v === 'object' && v.c && !Number.isNaN(new Date(v.c.due).getTime())
+    && ['stability', 'difficulty', 'reps', 'lapses', 'state'].every(f => num(v.c[f])) && v.c.state >= 0 && v.c.state <= 3
+    && (v.fd == null || Array.isArray(v.fd))));
 }
 let cards = loadCards();
 let saveTimer = null;
@@ -68,7 +72,7 @@ export function review(key, rating, fast = false) {
   const prev = cards[key];
   const base = prev ? { ...prev.c } : createEmptyCard(now);
   const { card } = scheduler.next(base, now, rating);
-  const fastDays = new Set(prev?.fd || []);
+  const fastDays = new Set(Array.isArray(prev?.fd) ? prev.fd : []);
   if (fast) fastDays.add(today());
   cards = { ...cards, [key]: { c: card, fd: [...fastDays].slice(-10), seen: prev?.seen || today() } };
   saveCards();
@@ -86,10 +90,11 @@ export function dueKeys(limit = 999) {
     .map(([k]) => k);
 }
 export const learnedCount = prefix => Object.keys(cards).filter(k => k.startsWith(prefix)).length;
+export const cardKeys = () => Object.keys(cards);
 
 /* ---------- дневник ---------- */
 export function dayLog(d = today()) {
-  return { sec: 0, newWords: 0, newPhrases: 0, reviews: 0, ...(get('days', {})[d] || {}) };
+  return { sec: 0, newWords: 0, newPhrases: 0, reviews: 0, points: 0, laws: 0, ...(get('days', {})[d] || {}) };
 }
 export function addToDay(patch) {
   const all = get('days', {});
@@ -98,41 +103,91 @@ export function addToDay(patch) {
   for (const [k, v] of Object.entries(patch)) cur[k] = (cur[k] || 0) + v;
   set('days', { ...all, [d]: cur });
 }
-/** Секунды книги за сегодня — плеер книги пишет их в knl.listen по той же местной дате. */
-export function bookSecondsToday() {
+/** Секунды книги по датам — плеер книги пишет их в knl.listen по той же местной дате. */
+export function bookByDate() {
   try {
-    const v = JSON.parse(localStorage.getItem('knl.listen') || '{}')[today()];
-    return Number.isFinite(v) ? v : 0;
+    const all = JSON.parse(localStorage.getItem('knl.listen') || '{}');
+    return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
   } catch {
-    return 0;
+    return {};
   }
 }
+const bookSec = (book, d) => (Number.isFinite(book[d]) ? book[d] : 0);
+export const bookSecondsToday = () => bookSec(bookByDate(), today());
+/** Сколько минут книги уже оплачено очками: {дата: минуты}. */
+export const bookPaid = {
+  get: () => get('bookPaid', {}),
+  set: m => set('bookPaid', m),
+};
 /** Местная дата i дней назад (через календарь, а не минус 24 часа — переход на летнее время не сбивает). */
 function daysAgo(i) {
   const x = new Date();
   x.setDate(x.getDate() - i);
   return x.toLocaleDateString('sv-SE');
 }
+/** Время занятий за день: тренажёр + книга (слушать — тоже учиться). */
+function daySec(all, book, d) {
+  return (Number(all[d]?.sec) || 0) + bookSec(book, d);
+}
 export function history(days = 7) {
   const all = get('days', {});
+  const book = bookByDate();
   const out = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = daysAgo(i);
-    out.push({ d, sec: (all[d]?.sec || 0) });
+    out.push({ d, sec: daySec(all, book, d) });
   }
   return out;
 }
+/** Серия: дни подряд от 10 минут; сегодняшний день ещё идёт — он не обрывает серию, пока не кончился. */
 export function streak() {
   const all = get('days', {});
+  const book = bookByDate();
   let n = 0;
   for (let i = 0; i < 400; i++) {
-    const d = daysAgo(i);
-    if ((all[d]?.sec || 0) >= 600) n++;
+    if (daySec(all, book, daysAgo(i)) >= 600) n++;
     else if (i > 0) break;
   }
   return n;
 }
-export const totalHours = () => Object.values(get('days', {})).reduce((s, x) => s + (Number(x?.sec) || 0), 0) / 3600;
+export const totalHours = () => {
+  const trainer = Object.values(get('days', {})).reduce((s, x) => s + (Number(x?.sec) || 0), 0);
+  const book = Object.values(bookByDate()).reduce((s, x) => s + (Number.isFinite(x) ? x : 0), 0);
+  return (trainer + book) / 3600;
+};
+
+/* ---------- очки, счётчики, награды ---------- */
+/** Очки: всего и за сегодня (дневник). */
+export const points = {
+  total: () => {
+    const v = get('points', 0);
+    return Number.isFinite(v) ? v : 0;
+  },
+  add(n) {
+    const t = points.total() + n;
+    set('points', t);
+    addToDay({ points: n });
+    return t;
+  },
+};
+/** Счётчики событий для наград: scenes — пройденные сценки. */
+export const stats = {
+  get: () => get('stats', {}),
+  add(key, n = 1) {
+    const all = get('stats', {});
+    set('stats', { ...all, [key]: (Number(all[key]) || 0) + n });
+  },
+};
+/** Заработанные награды: {id: дата}. */
+export const earned = {
+  get: () => get('badges', {}),
+  add: id => set('badges', { ...get('badges', {}), [id]: today() }),
+};
+/** Отметка «бонус за весь план дня уже выдан». */
+export const dayFlag = {
+  has: name => !!dayLog()[name],
+  set: name => addToDay({ [name]: 1 }),
+};
 
 /* ---------- прочее ---------- */
 export const done = {
@@ -160,8 +215,9 @@ export function exportAll() {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k.startsWith('knl.')) out[k] = localStorage.getItem(k);
+    if (k && k.startsWith('knl.')) out[k] = localStorage.getItem(k);
   }
+  out[`${P}cards`] = JSON.stringify(cards);   // карточки — из памяти: запись в хранилище могла не пройти
   return JSON.stringify({ app: 'knigi-na-sluh', v: 1, data: out });
 }
 export function importAll(text) {
@@ -171,18 +227,24 @@ export function importAll(text) {
   } catch {
     throw new Error('текст повреждён — скопируйте выгрузку целиком');
   }
-  if (d?.app !== 'knigi-na-sluh' || !d.data || typeof d.data !== 'object') throw new Error('это не выгрузка «Книг на слух»');
+  if (d?.app !== 'knigi-na-sluh' || !d.data || typeof d.data !== 'object' || Array.isArray(d.data)) throw new Error('это не выгрузка «Книг на слух»');
   const items = Object.entries(d.data).filter(([k, v]) => k.startsWith('knl.') && typeof v === 'string');
+  if (!items.length) throw new Error('в выгрузке нет прогресса — прежний оставлен как был');
   for (const [, v] of items) JSON.parse(v);   // каждое значение — JSON, иначе ничего не записываем
-  const before = items.map(([k]) => [k, localStorage.getItem(k)]);
+  // загрузка — полная замена: прогресс этого устройства становится таким же, как в выгрузке
+  const ours = () => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(k => k && k.startsWith('knl.'));
+  const before = ours().map(k => [k, localStorage.getItem(k)]);
   try {
+    ours().forEach(k => localStorage.removeItem(k));
     for (const [k, v] of items) localStorage.setItem(k, v);
   } catch {
-    // память переполнилась посреди записи — возвращаем всё как было, без смеси старого и нового
+    // память переполнилась посреди записи — сначала убираем недописанное (освобождает место), потом возвращаем прежнее
+    ours().forEach(k => localStorage.removeItem(k));
+    let lost = false;
     for (const [k, v] of before) {
-      try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* уже нечего сделать */ }
+      try { localStorage.setItem(k, v); } catch { lost = true; }
     }
-    throw new Error('не хватило памяти устройства — прогресс не изменён');
+    throw new Error(lost ? 'не хватило памяти устройства — часть прежнего прогресса не вернулась' : 'не хватило памяти устройства — прогресс не изменён');
   }
   cards = loadCards();
 }

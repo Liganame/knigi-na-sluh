@@ -1,6 +1,7 @@
 // Каркас тренажёра: нижнее меню из пяти разделов, экраны со стрелкой «назад», учёт времени занятий.
 import { $, toast } from './ui.js';
-import { addToDay } from './progress.js';
+import { addToDay, points, streak } from './progress.js';
+import { ic } from './icons.js';
 import * as audio from './audio.js';
 import * as speech from './speech.js';
 import { today } from './today.js';
@@ -26,6 +27,7 @@ export function show(title, render, mode = false) {
   stack.push({ title, render });
   $('#title').textContent = title;
   $('#back').hidden = stack.length < 2;
+  renderStats();
   const main = $('#main');
   const screen = document.createElement('div');
   screen.className = 'screen';
@@ -38,6 +40,8 @@ export function show(title, render, mode = false) {
     }));
   });
 }
+/** Текущий экран: обработчик, который ждал загрузку, сверяет — не ушёл ли человек за это время. */
+export const currentScreen = () => document.querySelector('#main > .screen');
 /** Убрать верхний экран из стека, не перерисовывая (тренировка закончилась — «назад» ведёт мимо неё). */
 export function dropTop() {
   if (stack.length > 1) stack.pop();
@@ -54,6 +58,14 @@ export function back() {
   show(top.title, top.render, true);
   return true;
 }
+/** Серия дней и очки в шапке — только на главных экранах разделов (во вложенных места нет). */
+function renderStats() {
+  const box = $('#stats');
+  box.hidden = stack.length > 1;
+  if (box.hidden) return;
+  box.innerHTML = `<span class="stat fire" title="Дней подряд">${ic('flame', 'flick')}${streak()}</span><span class="stat pts" title="Очки">${ic('zap')}${points.total()}</span>`;
+}
+
 export function tab(name) {
   document.querySelectorAll('#nav button').forEach(b => b.toggleAttribute('aria-current', b.dataset.tab === name));
   document.querySelector(`#nav [data-tab="${name}"]`)?.setAttribute('aria-current', 'page');
@@ -69,6 +81,9 @@ setInterval(() => {
 
 function boot() {
   $('#back').onclick = back;
+  document.addEventListener('knl:stats', renderStats);
+  // iPhone: звук разрешается только из касания — включаем его на первом же касании экрана
+  ['pointerdown', 'touchend', 'click'].forEach(t => document.addEventListener(t, () => audio.unlock(), { once: true, capture: true }));
   $('#nav').addEventListener('click', e => {
     const b = e.target.closest('button[data-tab]');
     if (b) tab(b.dataset.tab);

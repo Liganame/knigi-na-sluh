@@ -5,9 +5,28 @@ const buffers = new Map();   // url → Promise<AudioBuffer>
 let current = null;
 let token = 0;   // номер последнего запроса play: ожидающий старый запрос после загрузки не зазвучит
 
-function context() {
+export function context() {
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
   return ctx;
+}
+
+/**
+ * Разблокировать звук: iPhone (Safari) и часть Android дают играть, только если звук впервые
+ * включён прямо в обработчике касания. Зовётся на первом касании экрана — дальше звук работает
+ * и после ожидания загрузки данных.
+ */
+export function unlock() {
+  try {
+    const c = context();
+    if (c.state === 'suspended') c.resume().catch(() => {});
+    const b = c.createBuffer(1, 1, 22050);
+    const s = c.createBufferSource();
+    s.buffer = b;
+    s.connect(c.destination);
+    s.start(0);
+  } catch {
+    // нет Web Audio — упражнения пойдут без звука
+  }
 }
 
 function load(url) {
