@@ -1,6 +1,6 @@
 // Фоновая служба сайта: оболочка приложения и тексты — из кэша с обновлением в фоне;
 // звук — только из явно скачанного кэша (кнопка «↓» у голоса), с поддержкой перемотки (Range).
-const VERSION = 'v5';   // меняется при каждой выкладке кода — иначе открывшие сайт получат старую оболочку
+const VERSION = 'v6';   // меняется при каждой выкладке кода — иначе открывшие сайт получат старую оболочку
 const SHELL = `knl-shell-${VERSION}`;
 const AUDIO = 'knl-audio-v1';
 const TRAINER = 'knl-trainer-v1';   // звук тренажёра: кладётся в кэш при первом запросе (в адресе ?v=отпечаток)
@@ -15,11 +15,29 @@ const SHELL_FILES = [
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
+// В приложении для Android (Capacitor, адрес https://localhost) все файлы лежат внутри — служба там не нужна и вредна:
+// после обновления приложения она подсовывала старые файлы из кэша. Новая служба в приложении стирает кэши,
+// снимает себя и перезагружает открытые окна — с первого же запуска видна новая версия.
+const IN_APP = self.location.origin === 'https://localhost';
+
 self.addEventListener('install', event => {
+  if (IN_APP) {
+    self.skipWaiting();
+    return;
+  }
   event.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
+  if (IN_APP) {
+    event.waitUntil((async () => {
+      for (const k of await caches.keys()) await caches.delete(k);
+      const wins = await self.clients.matchAll({ type: 'window' });
+      await self.registration.unregister();
+      await Promise.all(wins.map(w => w.navigate(w.url).catch(() => null)));
+    })());
+    return;
+  }
   event.waitUntil(caches.keys()
     .then(keys => Promise.all(keys.filter(k => k.startsWith('knl-shell-') && k !== SHELL).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
@@ -80,6 +98,7 @@ async function trainerResponse(request) {
 }
 
 self.addEventListener('fetch', event => {
+  if (IN_APP) return;   // в приложении файлы берутся прямо из него
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   if (req.url.includes('/trainer/audio/') && !req.headers.get('range')) {

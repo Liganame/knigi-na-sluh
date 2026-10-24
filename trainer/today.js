@@ -3,7 +3,7 @@
 import { show, tab, currentScreen } from './main.js';
 import { el, esc, shuffle, toast } from './ui.js';
 import { ic } from './icons.js';
-import { wordIndex, phraseIndex, packs, lawsData } from './data.js';
+import { wordIndex, phraseIndex, packs, lawsData, APP_VERSION } from './data.js';
 import * as P from './progress.js';
 import * as game from './game.js';
 import { wordTask, learnPack } from './words.js';
@@ -123,7 +123,7 @@ export function myPath() {
     m.append(forecast(S), week(S), badgesCard());
     const row = el(`<div class="grid2"><button class="btn ghost">${ic('gear')}Настройки</button><a class="btn ghost" href="books.html">${ic('book')}Все книги</a></div>`);
     row.querySelector('button').onclick = () => settingsScreen();
-    m.append(row);
+    m.append(row, el(`<div class="muted" style="text-align:center">Версия ${APP_VERSION}${window.Capacitor?.isNativePlatform?.() ? ' · приложение для Android' : ''}</div>`));
   }, true);
 }
 

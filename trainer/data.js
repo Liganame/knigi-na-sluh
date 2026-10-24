@@ -15,6 +15,8 @@ async function json(name) {
 }
 
 export const LEVELS = ['A1', 'A2'];
+/** Версия приложения — видна на экране «Мой путь»; совпадает с versionName в Android-сборке. */
+export const APP_VERSION = '1.2';
 export const audioUrl = file => 'trainer/' + file;
 
 /** Пачки уровня: [{id, audio, story, words: [{id, w, ru, ex, exru, assoc, law, ipa, a, x}]}]. */

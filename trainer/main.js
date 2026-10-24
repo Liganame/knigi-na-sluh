@@ -2,6 +2,7 @@
 import { $, toast } from './ui.js';
 import { addToDay, points, streak } from './progress.js';
 import { ic } from './icons.js';
+import { registerServiceWorker } from '../app/offline.js';
 import * as audio from './audio.js';
 import * as speech from './speech.js';
 import { today } from './today.js';
@@ -92,7 +93,7 @@ function boot() {
   window.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     if (!back()) window.Capacitor.Plugins.App.minimizeApp?.();
   });
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+  registerServiceWorker();
   const want = location.hash.replace('#', '');
   tab(TABS[want] ? want : 'today');
   window.addEventListener('unhandledrejection', e => toast('Ошибка: ' + (e.reason?.message || e.reason)));

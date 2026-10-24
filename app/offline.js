@@ -1,8 +1,39 @@
 // Работа без интернета: регистрация фоновой службы (sw.js), скачивание голоса, установка на экран.
 export const AUDIO_CACHE = 'knl-audio-v1';
 
+// В приложении для Android все файлы внутри — фоновая служба и скачивание голосов там не нужны.
+export const NATIVE = !!window.Capacitor?.isNativePlatform?.();
+
+/** Снять фоновую службу и стереть её кэши. true — страница была под службой (значит, могла показать старые файлы). */
+async function dropServiceWorker() {
+  const had = !!navigator.serviceWorker.controller;
+  try {
+    for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+    if ('caches' in window) for (const k of await caches.keys()) await caches.delete(k);
+  } catch {
+    // чистить нечего или хранилище недоступно
+  }
+  return had;
+}
+
 export function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
+  if (NATIVE) {
+    dropServiceWorker().then(had => {
+      if (had && !sessionStorage.getItem('knl.swgone')) {   // один раз: перезагрузка уже без службы — с новыми файлами
+        sessionStorage.setItem('knl.swgone', '1');
+        location.reload();
+      }
+    });
+    return;
+  }
+  // Сайт: вышла новая версия — служба сменилась; если страницу только что открыли, сразу перезагружаем,
+  // чтобы новая версия была видна с первого раза, а не со второго.
+  const updating = !!navigator.serviceWorker.controller;
+  const openedAt = Date.now();
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (updating && Date.now() - openedAt < 15000) location.reload();
+  });
   navigator.serviceWorker.register('sw.js').catch(() => {
     // без фоновой службы сайт просто работает только с интернетом
   });
@@ -18,6 +49,10 @@ export function voiceFiles(book, voiceId) {
 /** Какие голоса уже скачаны целиком: {voiceId: true}. */
 export async function offlineVoices(book) {
   const out = {};
+  if (NATIVE) {
+    for (const v of book.voices) out[v.id] = true;   // в приложении звук книги уже внутри
+    return out;
+  }
   if (!('caches' in window)) return out;
   try {
     const cache = await caches.open(AUDIO_CACHE);
